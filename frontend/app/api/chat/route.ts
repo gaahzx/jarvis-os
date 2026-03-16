@@ -38,7 +38,7 @@ export async function POST(req: Request) {
     ];
 
     const stream = await groq.chat.completions.create({
-      model: process.env.GROQ_MODEL || "llama-3.3-70b-versatile",
+      model: (process.env.GROQ_MODEL || "llama-3.3-70b-versatile").trim(),
       messages,
       stream: true,
       max_tokens: 8192,

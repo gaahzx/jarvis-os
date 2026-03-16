@@ -123,8 +123,12 @@ export function useJarvis(): UseJarvis {
   const historyRef = useRef<{ role: string; content: string }[]>([]);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const recognitionRef = useRef<any>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const wakeWordRef = useRef<any>(null);
   const synthRef = useRef<SpeechSynthesisUtterance | null>(null);
   const streamingIdRef = useRef<string | null>(null);
+  const isSpeakingRef = useRef(false);
+  const isThinkingRef = useRef(false);
 
   // ── Carrega agentes na inicialização ────────────────────────────────────────
   useEffect(() => {
@@ -178,9 +182,9 @@ export function useJarvis(): UseJarvis {
     );
     if (ptVoice) utter.voice = ptVoice;
 
-    utter.onstart = () => setState((s) => ({ ...s, orbState: "speaking", isSpeaking: true }));
-    utter.onend = () => setState((s) => ({ ...s, orbState: "idle", isSpeaking: false }));
-    utter.onerror = () => setState((s) => ({ ...s, orbState: "idle", isSpeaking: false }));
+    utter.onstart = () => { isSpeakingRef.current = true; setState((s) => ({ ...s, orbState: "speaking", isSpeaking: true })); };
+    utter.onend = () => { isSpeakingRef.current = false; setState((s) => ({ ...s, orbState: "idle", isSpeaking: false })); };
+    utter.onerror = () => { isSpeakingRef.current = false; setState((s) => ({ ...s, orbState: "idle", isSpeaking: false })); };
 
     synthRef.current = utter;
     window.speechSynthesis.speak(utter);
@@ -200,6 +204,7 @@ export function useJarvis(): UseJarvis {
       const agentDef = AGENTS[resolvedAgent];
 
       // Adiciona mensagem do usuário
+      isThinkingRef.current = true;
       setState((s) => ({
         ...s,
         orbState: "thinking",
@@ -243,6 +248,7 @@ export function useJarvis(): UseJarvis {
           },
           // onDone: finaliza e fala
           (fullText, agent, agentLabel) => {
+            isThinkingRef.current = false;
             // Atualiza histórico para próximas mensagens
             historyRef.current = [
               ...historyRef.current,
@@ -265,6 +271,7 @@ export function useJarvis(): UseJarvis {
           },
           // onError
           (err) => {
+            isThinkingRef.current = false;
             setState((s) => ({
               ...s,
               orbState: "error",
@@ -280,6 +287,7 @@ export function useJarvis(): UseJarvis {
           }
         );
       } catch (err) {
+        isThinkingRef.current = false;
         setState((s) => ({
           ...s,
           orbState: "error",
@@ -291,6 +299,73 @@ export function useJarvis(): UseJarvis {
     },
     [speak]
   );
+
+  // ── Wake Word contínuo ──────────────────────────────────────────────────────
+
+  const startWakeWordListener = useCallback(() => {
+    if (typeof window === "undefined") return;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const w = window as any;
+    const SpeechRecognitionAPI = w.SpeechRecognition || w.webkitSpeechRecognition;
+    if (!SpeechRecognitionAPI) return;
+
+    const wake = new SpeechRecognitionAPI();
+    wake.lang = "pt-BR";
+    wake.continuous = true;
+    wake.interimResults = true;
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    wake.onresult = (event: any) => {
+      if (isSpeakingRef.current || isThinkingRef.current) return;
+
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        const transcript = event.results[i][0].transcript.toLowerCase().trim();
+        const hasWakeWord = /\bjarvis\b|j\.a\.r\.v\.i\.s/i.test(transcript);
+
+        if (hasWakeWord) {
+          // Remove a wake word e pega o restante como comando
+          const command = transcript
+            .replace(/j\.a\.r\.v\.i\.s\.?/gi, "")
+            .replace(/\bjarvis\b/gi, "")
+            .trim();
+
+          if (command.length > 2) {
+            // Tem comando junto com a wake word — envia direto
+            sendCommand(command);
+          } else if (event.results[i].isFinal) {
+            // Só disse "Jarvis" — ativa o microfone para ouvir o comando
+            setState((s) => ({ ...s, orbState: "listening" }));
+          }
+        }
+      }
+    };
+
+    wake.onerror = () => {
+      // Reinicia automaticamente em caso de erro (exceto sem microfone)
+    };
+
+    wake.onend = () => {
+      // Reinicia o listener contínuo
+      if (wakeWordRef.current === wake) {
+        try { wake.start(); } catch { /* já rodando */ }
+      }
+    };
+
+    wakeWordRef.current = wake;
+    try { wake.start(); } catch { /* já rodando */ }
+  }, [sendCommand]);
+
+  // Inicia wake word listener ao montar
+  useEffect(() => {
+    startWakeWordListener();
+    return () => {
+      if (wakeWordRef.current) {
+        wakeWordRef.current.onend = null;
+        wakeWordRef.current.stop();
+        wakeWordRef.current = null;
+      }
+    };
+  }, [startWakeWordListener]);
 
   // ── STT via Web Speech API ──────────────────────────────────────────────────
 

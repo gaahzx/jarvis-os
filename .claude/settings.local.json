@@ -18,7 +18,8 @@
       "Bash(PYTHON=\"/c/Program Files/Python311/python.exe\"\n\"$PYTHON\" -m pip install python-dotenv fastapi uvicorn anthropic supabase sentence-transformers faster-whisper sounddevice soundfile openwakeword 2>&1 | tail -20)",
       "Bash(PYTHON=\"/c/Program Files/Python311/python.exe\"\n\"$PYTHON\" -m pip install aiofiles pyaudio websockets 2>&1 | tail -10)",
       "Bash(find:*)",
-      "Bash(gh:*)"
+      "Bash(gh:*)",
+      "Bash(vercel:*)"
     ]
   }
 }
