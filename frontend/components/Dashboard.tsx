@@ -332,7 +332,7 @@ export default function Dashboard() {
 
         {activeTab === "deliveries" && (
           <div style={{ height: "100%", padding: "12px" }}>
-            <DeliveriesPanel deliveries={state.deliveries} />
+            <DeliveriesPanel deliveries={[]} />
           </div>
         )}
 
@@ -348,17 +348,11 @@ export default function Dashboard() {
                 position: "relative",
               }}
             >
-              {/* Header do Visual Brain */}
               <div className="panel-header" style={{ position: "absolute", top: 0, left: 0, right: 0, zIndex: 20 }}>
                 <span>◈ VISUAL BRAIN — MAPA COGNITIVO</span>
-                {state.activeGraph && (
-                  <span style={{ marginLeft: "auto", fontSize: "9px", color: "var(--color-primary-dim)" }}>
-                    {state.activeGraph.nodes.length} NÓS ATIVOS
-                  </span>
-                )}
               </div>
               <div style={{ height: "100%", paddingTop: "38px" }}>
-                <VisualBrain graph={state.activeGraph} />
+                <VisualBrain graph={null} />
               </div>
             </div>
           </div>

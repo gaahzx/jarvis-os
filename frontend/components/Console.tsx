@@ -205,22 +205,22 @@ export default function Console({ messages, orbState, onSendCommand, onStartList
                 >
                   {formatTime(msg.timestamp instanceof Date ? msg.timestamp : new Date(msg.timestamp))}
                 </span>
-                {!isUser && msg.latencyMs && (
+                {!isUser && (msg as { latencyMs?: number }).latencyMs && (
                   <span
                     style={{
                       fontFamily: "var(--font-mono)",
                       fontSize: "9px",
-                      color: msg.latencyMs < 2000 ? "#00c853" : msg.latencyMs < 4000 ? "#f59e0b" : "#ff3b3b",
+                      color: ((msg as { latencyMs?: number }).latencyMs ?? 0) < 2000 ? "#00c853" : ((msg as { latencyMs?: number }).latencyMs ?? 0) < 4000 ? "#f59e0b" : "#ff3b3b",
                       opacity: 0.7,
                     }}
                   >
-                    {Math.round(msg.latencyMs)}ms
+                    {Math.round((msg as { latencyMs?: number }).latencyMs ?? 0)}ms
                   </span>
                 )}
               </div>
 
               {/* Tag de modo */}
-              {!isUser && <ModeTag mode={msg.mode} />}
+              {!isUser && <ModeTag mode={(msg as { mode?: string }).mode} />}
 
               {/* Conteúdo */}
               <div className={isUser ? "console-msg-user" : "console-msg-assistant"}>

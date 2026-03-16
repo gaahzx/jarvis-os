@@ -121,7 +121,8 @@ export function useJarvis(): UseJarvis {
   });
 
   const historyRef = useRef<{ role: string; content: string }[]>([]);
-  const recognitionRef = useRef<SpeechRecognition | null>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const recognitionRef = useRef<any>(null);
   const synthRef = useRef<SpeechSynthesisUtterance | null>(null);
   const streamingIdRef = useRef<string | null>(null);
 
@@ -296,11 +297,9 @@ export function useJarvis(): UseJarvis {
   const startListening = useCallback(() => {
     if (typeof window === "undefined") return;
 
-    const SpeechRecognitionAPI =
-      (window as unknown as { SpeechRecognition?: typeof SpeechRecognition; webkitSpeechRecognition?: typeof SpeechRecognition })
-        .SpeechRecognition ||
-      (window as unknown as { webkitSpeechRecognition?: typeof SpeechRecognition })
-        .webkitSpeechRecognition;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const w = window as any;
+    const SpeechRecognitionAPI = w.SpeechRecognition || w.webkitSpeechRecognition;
 
     if (!SpeechRecognitionAPI) {
       setState((s) => ({
@@ -320,7 +319,8 @@ export function useJarvis(): UseJarvis {
     recognition.onstart = () =>
       setState((s) => ({ ...s, orbState: "listening", isListening: true }));
 
-    recognition.onresult = (event) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    recognition.onresult = (event: any) => {
       const transcript = event.results[0]?.[0]?.transcript?.trim();
       if (transcript) {
         sendCommand(transcript);

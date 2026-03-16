@@ -22,6 +22,7 @@
     "three": "0.168.0"
   },
   "devDependencies": {
+    "@types/dom-speech-recognition": "^0.0.7",
     "@types/node": "22.5.1",
     "@types/react": "18.3.5",
     "@types/react-dom": "18.3.0",
