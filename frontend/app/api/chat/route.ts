@@ -1,27 +1,50 @@
 /**
  * app/api/chat/route.ts
  *
- * API Route com xAI Grok (gratuito, com acesso à internet via web search).
- * Modelo: grok-3-mini-beta
- *
- * Free tier: $25/mês em créditos grátis
- * Obtenha sua chave em: https://console.x.ai
+ * Groq + Llama 3.3 70B com busca web via Tavily (tempo real).
+ * Tavily: 1.000 buscas/mês grátis, sem cartão.
  */
 
-import OpenAI from "openai";
+import Groq from "groq-sdk";
 import { AGENTS, detectAgent } from "@/lib/agents";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
-const xai = new OpenAI({
-  apiKey: process.env.XAI_API_KEY!,
-  baseURL: "https://api.x.ai/v1",
-});
+const groq = new Groq({ apiKey: process.env.GROQ_API_KEY! });
 
-// Palavras-chave que indicam necessidade de busca em tempo real
 const REALTIME_KEYWORDS =
-  /clima|tempo|temperatura|chuva|previsão|notícias?|noticias?|hoje|amanhã|amanha|agora|atual|recente|última|ultima|preço|cotação|cotacao|dólar|dollar|bitcoin|btc|jogo|resultado|placar/i;
+  /clima|tempo|temperatura|chuva|previsão|notícias?|hoje|amanhã|agora|atual|recente|última|preço|cotação|dólar|bitcoin|btc|jogo|resultado|placar/i;
+
+async function webSearch(query: string): Promise<string> {
+  const apiKey = process.env.TAVILY_API_KEY;
+  if (!apiKey) return "";
+
+  try {
+    const res = await fetch("https://api.tavily.com/search", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        api_key: apiKey,
+        query,
+        search_depth: "basic",
+        max_results: 3,
+        include_answer: true,
+      }),
+    });
+    if (!res.ok) return "";
+    const data = await res.json();
+    const answer = data.answer ? `Resposta direta: ${data.answer}\n\n` : "";
+    const results = (data.results || [])
+      .slice(0, 3)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      .map((r: any) => `- ${r.title}: ${r.content?.slice(0, 200)}`)
+      .join("\n");
+    return answer + results;
+  } catch {
+    return "";
+  }
+}
 
 export async function POST(req: Request) {
   try {
@@ -34,10 +57,18 @@ export async function POST(req: Request) {
     const selectedAgent = agentName || detectAgent(text);
     const agent = AGENTS[selectedAgent] || AGENTS["analyst"];
 
-    const needsSearch = REALTIME_KEYWORDS.test(text);
+    // Busca web se for pergunta em tempo real
+    let searchContext = "";
+    if (REALTIME_KEYWORDS.test(text)) {
+      searchContext = await webSearch(text);
+    }
 
-    const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [
-      { role: "system", content: agent.systemPrompt },
+    const systemPrompt = searchContext
+      ? `${agent.systemPrompt}\n\n[DADOS EM TEMPO REAL DA WEB]\n${searchContext}\n[FIM DOS DADOS]\nUse os dados acima para responder com precisão.`
+      : agent.systemPrompt;
+
+    const messages: Groq.Chat.ChatCompletionMessageParam[] = [
+      { role: "system", content: systemPrompt },
       ...history.slice(-20).map((m: { role: string; content: string }) => ({
         role: m.role as "user" | "assistant",
         content: m.content,
@@ -45,21 +76,13 @@ export async function POST(req: Request) {
       { role: "user", content: text },
     ];
 
-    const requestParams: OpenAI.Chat.ChatCompletionCreateParamsStreaming = {
-      model: "grok-3-mini-beta",
+    const stream = await groq.chat.completions.create({
+      model: (process.env.GROQ_MODEL || "llama-3.3-70b-versatile").trim(),
       messages,
       stream: true,
       max_tokens: 8192,
       temperature: 0.7,
-    };
-
-    // Ativa busca na web para perguntas sobre tempo real
-    if (needsSearch) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (requestParams as any)["search_parameters"] = { mode: "auto" };
-    }
-
-    const stream = await xai.chat.completions.create(requestParams);
+    });
 
     const encoder = new TextEncoder();
     let fullText = "";
@@ -69,11 +92,7 @@ export async function POST(req: Request) {
         try {
           controller.enqueue(
             encoder.encode(
-              `data: ${JSON.stringify({
-                type: "start",
-                agent: agent.name,
-                agentLabel: agent.label,
-              })}\n\n`
+              `data: ${JSON.stringify({ type: "start", agent: agent.name, agentLabel: agent.label })}\n\n`
             )
           );
 
@@ -82,28 +101,19 @@ export async function POST(req: Request) {
             if (delta) {
               fullText += delta;
               controller.enqueue(
-                encoder.encode(
-                  `data: ${JSON.stringify({ type: "delta", text: delta })}\n\n`
-                )
+                encoder.encode(`data: ${JSON.stringify({ type: "delta", text: delta })}\n\n`)
               );
             }
           }
 
           controller.enqueue(
             encoder.encode(
-              `data: ${JSON.stringify({
-                type: "done",
-                text: fullText,
-                agent: agent.name,
-                agentLabel: agent.label,
-              })}\n\n`
+              `data: ${JSON.stringify({ type: "done", text: fullText, agent: agent.name, agentLabel: agent.label })}\n\n`
             )
           );
         } catch (err) {
           controller.enqueue(
-            encoder.encode(
-              `data: ${JSON.stringify({ type: "error", message: String(err) })}\n\n`
-            )
+            encoder.encode(`data: ${JSON.stringify({ type: "error", message: String(err) })}\n\n`)
           );
         } finally {
           controller.close();
