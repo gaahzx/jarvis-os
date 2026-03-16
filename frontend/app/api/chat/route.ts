@@ -1,28 +1,20 @@
 /**
  * app/api/chat/route.ts
  *
- * API Route do Next.js com Google Gemini (gratuito via AI Studio).
- * Modelo: gemini-1.5-flash — gratuito, rápido, multilingual.
+ * API Route com Groq (gratuito, ultra-rápido via LPU).
+ * Modelo padrão: llama-3.3-70b-versatile
  *
- * Free tier: 15 RPM, 1.500 req/dia, 1M tokens/min.
- * Obtenha sua chave em: https://aistudio.google.com/app/apikey
+ * Free tier: 30 RPM, 14.400 req/dia, 6.000 tokens/min
+ * Obtenha sua chave em: https://console.groq.com/keys
  */
 
-import { GoogleGenerativeAI, HarmCategory, HarmBlockThreshold } from "@google/generative-ai";
+import Groq from "groq-sdk";
 import { AGENTS, detectAgent } from "@/lib/agents";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
-
-// Configuração de segurança — permissiva para uso geral
-const safetySettings = [
-  { category: HarmCategory.HARM_CATEGORY_HARASSMENT,        threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH },
-  { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH,       threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH },
-  { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH },
-  { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH },
-];
+const groq = new Groq({ apiKey: process.env.GROQ_API_KEY! });
 
 export async function POST(req: Request) {
   try {
@@ -35,26 +27,23 @@ export async function POST(req: Request) {
     const selectedAgent = agentName || detectAgent(text);
     const agent = AGENTS[selectedAgent] || AGENTS["analyst"];
 
-    const model = genAI.getGenerativeModel({
-      model: process.env.GEMINI_MODEL || "gemini-1.5-flash",
-      systemInstruction: agent.systemPrompt,
-      safetySettings,
+    // Groq usa o mesmo formato do OpenAI — sem conversão necessária
+    const messages: Groq.Chat.ChatCompletionMessageParam[] = [
+      { role: "system", content: agent.systemPrompt },
+      ...history.slice(-20).map((m: { role: string; content: string }) => ({
+        role: m.role as "user" | "assistant",
+        content: m.content,
+      })),
+      { role: "user", content: text },
+    ];
+
+    const stream = await groq.chat.completions.create({
+      model: process.env.GROQ_MODEL || "llama-3.3-70b-versatile",
+      messages,
+      stream: true,
+      max_tokens: 8192,
+      temperature: 0.7,
     });
-
-    // Converte histórico do formato interno para o formato Gemini
-    // Interno: { role: "user"|"assistant", content: string }
-    // Gemini:  { role: "user"|"model",     parts: [{ text }] }
-    const geminiHistory = history
-      .slice(-20) // últimas 10 trocas
-      .map((m: { role: string; content: string }) => ({
-        role: m.role === "assistant" ? "model" : "user",
-        parts: [{ text: m.content }],
-      }));
-
-    const chat = model.startChat({ history: geminiHistory });
-
-    // Inicia stream
-    const result = await chat.sendMessageStream(text);
 
     const encoder = new TextEncoder();
     let fullText = "";
@@ -62,7 +51,6 @@ export async function POST(req: Request) {
     const readable = new ReadableStream({
       async start(controller) {
         try {
-          // Metadados iniciais
           controller.enqueue(
             encoder.encode(
               `data: ${JSON.stringify({
@@ -73,13 +61,13 @@ export async function POST(req: Request) {
             )
           );
 
-          for await (const chunk of result.stream) {
-            const chunkText = chunk.text();
-            if (chunkText) {
-              fullText += chunkText;
+          for await (const chunk of stream) {
+            const delta = chunk.choices[0]?.delta?.content ?? "";
+            if (delta) {
+              fullText += delta;
               controller.enqueue(
                 encoder.encode(
-                  `data: ${JSON.stringify({ type: "delta", text: chunkText })}\n\n`
+                  `data: ${JSON.stringify({ type: "delta", text: delta })}\n\n`
                 )
               );
             }
