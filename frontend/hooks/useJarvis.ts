@@ -300,7 +300,37 @@ export function useJarvis(): UseJarvis {
     [speak]
   );
 
-  // ── Wake Word contínuo ──────────────────────────────────────────────────────
+  // ── Wake Word + Command listener ────────────────────────────────────────────
+
+  const listenForCommand = useCallback(() => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const w = window as any;
+    const SpeechRecognitionAPI = w.SpeechRecognition || w.webkitSpeechRecognition;
+    if (!SpeechRecognitionAPI) return;
+
+    const cmd = new SpeechRecognitionAPI();
+    cmd.lang = "pt-BR";
+    cmd.continuous = false;
+    cmd.interimResults = false;
+    cmd.maxAlternatives = 3;
+
+    recognitionRef.current = cmd;
+    setState((s) => ({ ...s, orbState: "listening", isListening: true }));
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    cmd.onresult = (event: any) => {
+      // Pega a melhor alternativa
+      const transcript = event.results[0]?.[0]?.transcript?.trim();
+      if (transcript) {
+        sendCommand(transcript);
+      }
+    };
+
+    cmd.onerror = () => setState((s) => ({ ...s, orbState: "idle", isListening: false }));
+    cmd.onend = () => setState((s) => ({ ...s, isListening: false }));
+
+    try { cmd.start(); } catch { /* já rodando */ }
+  }, [sendCommand]);
 
   const startWakeWordListener = useCallback(() => {
     if (typeof window === "undefined") return;
@@ -312,48 +342,61 @@ export function useJarvis(): UseJarvis {
     const wake = new SpeechRecognitionAPI();
     wake.lang = "pt-BR";
     wake.continuous = true;
-    wake.interimResults = true;
+    wake.interimResults = false; // só resultados finais = mais preciso
+    wake.maxAlternatives = 5;
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     wake.onresult = (event: any) => {
       if (isSpeakingRef.current || isThinkingRef.current) return;
 
       for (let i = event.resultIndex; i < event.results.length; i++) {
-        const transcript = event.results[i][0].transcript.toLowerCase().trim();
-        const hasWakeWord = /\bjarvis\b|j\.a\.r\.v\.i\.s/i.test(transcript);
+        if (!event.results[i].isFinal) continue;
 
-        if (hasWakeWord) {
-          // Remove a wake word e pega o restante como comando
-          const command = transcript
-            .replace(/j\.a\.r\.v\.i\.s\.?/gi, "")
-            .replace(/\bjarvis\b/gi, "")
-            .trim();
-
-          if (command.length > 2) {
-            // Tem comando junto com a wake word — envia direto
-            sendCommand(command);
-          } else if (event.results[i].isFinal) {
-            // Só disse "Jarvis" — ativa o microfone para ouvir o comando
-            setState((s) => ({ ...s, orbState: "listening" }));
+        // Verifica todas as alternativas para melhor detecção da wake word
+        let transcript = "";
+        for (let j = 0; j < event.results[i].length; j++) {
+          const alt = event.results[i][j].transcript.toLowerCase().trim();
+          if (/\bjarvis\b|j\.?a\.?r\.?v\.?i\.?s/i.test(alt)) {
+            transcript = alt;
+            break;
           }
+          if (!transcript) transcript = alt; // fallback: melhor alternativa
+        }
+
+        const hasWakeWord = /\bjarvis\b|j\.?a\.?r\.?v\.?i\.?s/i.test(transcript);
+        if (!hasWakeWord) continue;
+
+        // Remove wake word do transcript
+        const command = transcript
+          .replace(/j\.?a\.?r\.?v\.?i\.?s\.?/gi, "")
+          .replace(/\bjarvis\b/gi, "")
+          .trim();
+
+        if (command.length > 3) {
+          // Comando junto com wake word — processa direto
+          sendCommand(command);
+        } else {
+          // Só "Jarvis" — abre sessão de comando dedicada
+          wake.stop();
+          setTimeout(() => listenForCommand(), 300);
         }
       }
     };
 
-    wake.onerror = () => {
-      // Reinicia automaticamente em caso de erro (exceto sem microfone)
-    };
+    wake.onerror = () => { /* ignora erros transitórios */ };
 
     wake.onend = () => {
-      // Reinicia o listener contínuo
-      if (wakeWordRef.current === wake) {
-        try { wake.start(); } catch { /* já rodando */ }
+      // Reinicia automaticamente (exceto se foi parado intencionalmente)
+      if (wakeWordRef.current === wake && !isThinkingRef.current && !isSpeakingRef.current) {
+        setTimeout(() => {
+          try { wake.start(); } catch { /* já rodando */ }
+        }, 500);
       }
     };
 
     wakeWordRef.current = wake;
     try { wake.start(); } catch { /* já rodando */ }
-  }, [sendCommand]);
+  }, [sendCommand, listenForCommand]);
 
   // Inicia wake word listener ao montar
   useEffect(() => {
@@ -371,46 +414,15 @@ export function useJarvis(): UseJarvis {
 
   const startListening = useCallback(() => {
     if (typeof window === "undefined") return;
-
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const w = window as any;
-    const SpeechRecognitionAPI = w.SpeechRecognition || w.webkitSpeechRecognition;
-
-    if (!SpeechRecognitionAPI) {
-      setState((s) => ({
-        ...s,
-        lastError: "Seu navegador não suporta reconhecimento de voz. Use Chrome.",
-      }));
+    if (!w.SpeechRecognition && !w.webkitSpeechRecognition) {
+      setState((s) => ({ ...s, lastError: "Reconhecimento de voz requer Chrome." }));
       return;
     }
-
     window.speechSynthesis?.cancel();
-
-    const recognition = new SpeechRecognitionAPI();
-    recognition.lang = "pt-BR";
-    recognition.continuous = false;
-    recognition.interimResults = false;
-
-    recognition.onstart = () =>
-      setState((s) => ({ ...s, orbState: "listening", isListening: true }));
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    recognition.onresult = (event: any) => {
-      const transcript = event.results[0]?.[0]?.transcript?.trim();
-      if (transcript) {
-        sendCommand(transcript);
-      }
-    };
-
-    recognition.onerror = () =>
-      setState((s) => ({ ...s, orbState: "idle", isListening: false }));
-
-    recognition.onend = () =>
-      setState((s) => ({ ...s, isListening: false }));
-
-    recognitionRef.current = recognition;
-    recognition.start();
-  }, [sendCommand]);
+    listenForCommand();
+  }, [listenForCommand]);
 
   const stopListening = useCallback(() => {
     recognitionRef.current?.stop();
