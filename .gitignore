@@ -1,0 +1,51 @@
+# ============================================================
+# .gitignore — JARVIS OS
+# ============================================================
+
+# Credenciais — NUNCA commitar
+.env
+*.env.local
+*.env.production
+
+# Python
+.venv/
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Modelos de IA (grandes demais para git — usar git-lfs ou baixar via setup)
+models/
+*.onnx
+*.bin
+*.pt
+*.pth
+
+# Frontend
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+frontend/.vercel/
+
+# Temporários e cache
+/tmp/
+*.log
+*.tmp
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Docker
+jarvis-redis-data/

@@ -1,0 +1,95 @@
+version: "3.9"
+
+# ============================================================
+# JARVIS OS — Docker Compose
+# Orquestra o backend FastAPI e suas dependências locais.
+# O frontend Next.js é deployado separadamente no Vercel.
+#
+# Uso:
+#   docker compose up --build          → inicia tudo
+#   docker compose up --build -d       → background
+#   docker compose logs -f jarvis-api  → logs do backend
+#   docker compose down                → para tudo
+# ============================================================
+
+services:
+
+  # ── Backend FastAPI ──────────────────────────────────────────
+  jarvis-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: jarvis-api
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    environment:
+      - BACKEND_HOST=0.0.0.0
+      - BACKEND_PORT=8000
+      - BACKEND_RELOAD=false
+      - LOG_LEVEL=INFO
+    volumes:
+      # Persiste modelos de voz entre restarts (evita re-download)
+      - ./models:/app/models
+      # Entregas temporárias
+      - jarvis-tmp:/tmp/jarvis_deliveries
+    depends_on:
+      - jarvis-redis
+    networks:
+      - jarvis-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    # Sem voz em container (sem acesso a hardware de áudio)
+    command: ["python", "main.py", "--no-voice", "--host", "0.0.0.0", "--port", "8000"]
+
+  # ── Redis (cache de sessão e pub/sub opcional) ───────────────
+  # Usado como fallback de fila quando Supabase não está disponível
+  jarvis-redis:
+    image: redis:7.2-alpine
+    container_name: jarvis-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    volumes:
+      - jarvis-redis-data:/data
+    networks:
+      - jarvis-net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # ── Nginx reverse proxy (produção) ──────────────────────────
+  # Descomente para usar em VPS com domínio próprio
+  # jarvis-nginx:
+  #   image: nginx:1.27-alpine
+  #   container_name: jarvis-nginx
+  #   restart: unless-stopped
+  #   ports:
+  #     - "80:80"
+  #     - "443:443"
+  #   volumes:
+  #     - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+  #     - /etc/letsencrypt:/etc/letsencrypt:ro
+  #   depends_on:
+  #     - jarvis-api
+  #   networks:
+  #     - jarvis-net
+
+volumes:
+  jarvis-redis-data:
+    driver: local
+  jarvis-tmp:
+    driver: local
+
+networks:
+  jarvis-net:
+    driver: bridge

@@ -1,0 +1,44 @@
+# ============================================================
+# .dockerignore — JARVIS OS
+# ============================================================
+
+# Ambiente virtual Python
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Frontend (deployado no Vercel, não no container)
+frontend/node_modules/
+frontend/.next/
+frontend/.vercel/
+
+# Arquivos de desenvolvimento
+.env
+*.env.local
+.git/
+.gitignore
+
+# Modelos baixados (montados como volume)
+models/
+
+# Logs e temporários
+*.log
+*.tmp
+/tmp/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Testes
+tests/
+*.test.py

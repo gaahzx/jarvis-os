@@ -1,0 +1,24 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(node:*)",
+      "Bash(where python:*)",
+      "Bash(\"C:/Users/Gamer/AppData/Local/Microsoft/WindowsApps/python.exe\" --version 2>&1)",
+      "Bash(py:*)",
+      "Read(//c/Users/Gamer/AppData/Local/Programs/**)",
+      "Bash(ls /c/Python*)",
+      "Bash(curl:*)",
+      "Bash(powershell -Command \"Start-Process 'C:\\\\Users\\\\Gamer\\\\Downloads\\\\python-3.11.9-amd64.exe' -ArgumentList '/quiet InstallAllUsers=1 PrependPath=1 Include_test=0 Include_pip=1' -Wait -Verb RunAs; Write-Host 'INSTALL_DONE'\")",
+      "Bash(\"/c/Program Files/Python311/python.exe\" --version 2>&1 && \"/c/Program Files/Python311/python.exe\" -m pip --version 2>&1)",
+      "Bash(cd:*)",
+      "Bash(powershell -Command \"Expand-Archive -Path 'C:\\\\Users\\\\Gamer\\\\Downloads\\\\piper_win.zip' -DestinationPath 'C:\\\\Users\\\\Gamer\\\\Downloads\\\\piper_extracted' -Force\" && ls \"C:/Users/Gamer/Downloads/piper_extracted/\" 2>/dev/null || ls \"C:/Users/Gamer/Downloads/piper_extracted/piper/\" 2>/dev/null)",
+      "Bash(cp:*)",
+      "Bash(pkill:*)",
+      "Bash(PYTHON=\"/c/Program Files/Python311/python.exe\"\n\"$PYTHON\" --version)",
+      "Bash(PYTHON=\"/c/Program Files/Python311/python.exe\"\n\"$PYTHON\" -m pip install python-dotenv fastapi uvicorn anthropic supabase sentence-transformers faster-whisper sounddevice soundfile openwakeword 2>&1 | tail -20)",
+      "Bash(PYTHON=\"/c/Program Files/Python311/python.exe\"\n\"$PYTHON\" -m pip install aiofiles pyaudio websockets 2>&1 | tail -10)",
+      "Bash(find:*)",
+      "Bash(gh:*)"
+    ]
+  }
+}
