@@ -1,19 +1,28 @@
 /**
  * app/api/chat/route.ts
  *
- * API Route do Next.js que chama o Claude API com streaming (SSE).
- * Roda como serverless function no Vercel — sem backend separado.
+ * API Route do Next.js com Google Gemini (gratuito via AI Studio).
+ * Modelo: gemini-1.5-flash — gratuito, rápido, multilingual.
+ *
+ * Free tier: 15 RPM, 1.500 req/dia, 1M tokens/min.
+ * Obtenha sua chave em: https://aistudio.google.com/app/apikey
  */
 
-import Anthropic from "@anthropic-ai/sdk";
+import { GoogleGenerativeAI, HarmCategory, HarmBlockThreshold } from "@google/generative-ai";
 import { AGENTS, detectAgent } from "@/lib/agents";
 
 export const runtime = "nodejs";
-export const maxDuration = 60; // segundos (Vercel Pro permite 60s)
+export const maxDuration = 60;
 
-const client = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY!,
-});
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
+
+// Configuração de segurança — permissiva para uso geral
+const safetySettings = [
+  { category: HarmCategory.HARM_CATEGORY_HARASSMENT,        threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH },
+  { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH,       threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH },
+  { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH },
+  { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH },
+];
 
 export async function POST(req: Request) {
   try {
@@ -23,24 +32,29 @@ export async function POST(req: Request) {
       return Response.json({ error: "Texto vazio." }, { status: 400 });
     }
 
-    // Seleciona agente (explícito ou auto-detectado)
     const selectedAgent = agentName || detectAgent(text);
     const agent = AGENTS[selectedAgent] || AGENTS["analyst"];
 
-    // Monta histórico de mensagens
-    const messages: Anthropic.MessageParam[] = [
-      ...history.slice(-10), // últimas 10 trocas para não exceder contexto
-      { role: "user", content: text },
-    ];
-
-    // Inicia stream do Claude
-    const stream = await client.messages.create({
-      model: process.env.CLAUDE_MODEL || "claude-sonnet-4-20250514",
-      max_tokens: 8192,
-      system: agent.systemPrompt,
-      messages,
-      stream: true,
+    const model = genAI.getGenerativeModel({
+      model: process.env.GEMINI_MODEL || "gemini-1.5-flash",
+      systemInstruction: agent.systemPrompt,
+      safetySettings,
     });
+
+    // Converte histórico do formato interno para o formato Gemini
+    // Interno: { role: "user"|"assistant", content: string }
+    // Gemini:  { role: "user"|"model",     parts: [{ text }] }
+    const geminiHistory = history
+      .slice(-20) // últimas 10 trocas
+      .map((m: { role: string; content: string }) => ({
+        role: m.role === "assistant" ? "model" : "user",
+        parts: [{ text: m.content }],
+      }));
+
+    const chat = model.startChat({ history: geminiHistory });
+
+    // Inicia stream
+    const result = await chat.sendMessageStream(text);
 
     const encoder = new TextEncoder();
     let fullText = "";
@@ -48,7 +62,7 @@ export async function POST(req: Request) {
     const readable = new ReadableStream({
       async start(controller) {
         try {
-          // Envia metadados iniciais
+          // Metadados iniciais
           controller.enqueue(
             encoder.encode(
               `data: ${JSON.stringify({
@@ -59,22 +73,18 @@ export async function POST(req: Request) {
             )
           );
 
-          for await (const event of stream) {
-            if (
-              event.type === "content_block_delta" &&
-              event.delta.type === "text_delta"
-            ) {
-              const chunk = event.delta.text;
-              fullText += chunk;
+          for await (const chunk of result.stream) {
+            const chunkText = chunk.text();
+            if (chunkText) {
+              fullText += chunkText;
               controller.enqueue(
                 encoder.encode(
-                  `data: ${JSON.stringify({ type: "delta", text: chunk })}\n\n`
+                  `data: ${JSON.stringify({ type: "delta", text: chunkText })}\n\n`
                 )
               );
             }
           }
 
-          // Envia mensagem de conclusão
           controller.enqueue(
             encoder.encode(
               `data: ${JSON.stringify({
