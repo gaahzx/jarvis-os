@@ -1,50 +1,21 @@
 /**
  * app/api/chat/route.ts
  *
- * Groq + Llama 3.3 70B com busca web via Tavily (tempo real).
- * Tavily: 1.000 buscas/mês grátis, sem cartão.
+ * Google Gemini 2.0 Flash — gratuito (1.500 req/dia, 15 RPM).
+ * Google Search Grounding integrado: respostas com dados em tempo real.
+ * Obtenha sua chave em: https://aistudio.google.com/apikey
  */
 
-import Groq from "groq-sdk";
+import { GoogleGenerativeAI } from "@google/generative-ai";
 import { AGENTS, detectAgent } from "@/lib/agents";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
-const groq = new Groq({ apiKey: process.env.GROQ_API_KEY! });
+const genai = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
 
 const REALTIME_KEYWORDS =
   /clima|tempo|temperatura|chuva|previsão|notícias?|hoje|amanhã|agora|atual|recente|última|preço|cotação|dólar|bitcoin|btc|jogo|resultado|placar/i;
-
-async function webSearch(query: string): Promise<string> {
-  const apiKey = process.env.TAVILY_API_KEY;
-  if (!apiKey) return "";
-
-  try {
-    const res = await fetch("https://api.tavily.com/search", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        api_key: apiKey,
-        query,
-        search_depth: "basic",
-        max_results: 3,
-        include_answer: true,
-      }),
-    });
-    if (!res.ok) return "";
-    const data = await res.json();
-    const answer = data.answer ? `Resposta direta: ${data.answer}\n\n` : "";
-    const results = (data.results || [])
-      .slice(0, 3)
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      .map((r: any) => `- ${r.title}: ${r.content?.slice(0, 200)}`)
-      .join("\n");
-    return answer + results;
-  } catch {
-    return "";
-  }
-}
 
 export async function POST(req: Request) {
   try {
@@ -57,32 +28,26 @@ export async function POST(req: Request) {
     const selectedAgent = agentName || detectAgent(text);
     const agent = AGENTS[selectedAgent] || AGENTS["analyst"];
 
-    // Busca web se for pergunta em tempo real
-    let searchContext = "";
-    if (REALTIME_KEYWORDS.test(text)) {
-      searchContext = await webSearch(text);
+    const needsSearch = REALTIME_KEYWORDS.test(text);
+
+    const modelConfig: Parameters<typeof genai.getGenerativeModel>[0] = {
+      model: "gemini-2.0-flash",
+      systemInstruction: agent.systemPrompt,
+    };
+    if (needsSearch) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (modelConfig as any).tools = [{ googleSearch: {} }];
     }
+    const model = genai.getGenerativeModel(modelConfig);
 
-    const systemPrompt = searchContext
-      ? `${agent.systemPrompt}\n\n[DADOS EM TEMPO REAL DA WEB]\n${searchContext}\n[FIM DOS DADOS]\nUse os dados acima para responder com precisão.`
-      : agent.systemPrompt;
+    // Converte histórico para formato Gemini
+    const chatHistory = history.slice(-20).map((m: { role: string; content: string }) => ({
+      role: m.role === "assistant" ? "model" : "user",
+      parts: [{ text: m.content }],
+    }));
 
-    const messages: Groq.Chat.ChatCompletionMessageParam[] = [
-      { role: "system", content: systemPrompt },
-      ...history.slice(-20).map((m: { role: string; content: string }) => ({
-        role: m.role as "user" | "assistant",
-        content: m.content,
-      })),
-      { role: "user", content: text },
-    ];
-
-    const stream = await groq.chat.completions.create({
-      model: (process.env.GROQ_MODEL || "llama-3.3-70b-versatile").trim(),
-      messages,
-      stream: true,
-      max_tokens: 8192,
-      temperature: 0.7,
-    });
+    const chat = model.startChat({ history: chatHistory });
+    const result = await chat.sendMessageStream(text);
 
     const encoder = new TextEncoder();
     let fullText = "";
@@ -96,8 +61,8 @@ export async function POST(req: Request) {
             )
           );
 
-          for await (const chunk of stream) {
-            const delta = chunk.choices[0]?.delta?.content ?? "";
+          for await (const chunk of result.stream) {
+            const delta = chunk.text();
             if (delta) {
               fullText += delta;
               controller.enqueue(
