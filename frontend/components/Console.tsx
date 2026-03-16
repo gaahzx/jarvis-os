@@ -13,14 +13,15 @@
 
 import { useEffect, useRef, useState } from "react";
 import { SendHorizontal, Mic, Trash2 } from "lucide-react";
-import type { Message, OrbState } from "@/hooks/useJarvisWS";
-import FeedbackButtons from "@/components/FeedbackButtons";
+import type { Message, OrbState } from "@/hooks/useJarvis";
 
 interface ConsoleProps {
   messages: Message[];
   orbState: OrbState;
   onSendCommand: (text: string) => void;
-  onFeedback: (interactionId: string, feedback: "positive" | "negative") => void;
+  onStartListening: () => void;
+  onStopListening: () => void;
+  isListening: boolean;
   onClear: () => void;
 }
 
@@ -79,7 +80,7 @@ function TypingIndicator() {
 
 // ── Componente principal ───────────────────────────────────────
 
-export default function Console({ messages, orbState, onSendCommand, onFeedback, onClear }: ConsoleProps) {
+export default function Console({ messages, orbState, onSendCommand, onStartListening, onStopListening, isListening, onClear }: ConsoleProps) {
   const [inputText, setInputText] = useState("");
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -228,13 +229,12 @@ export default function Console({ messages, orbState, onSendCommand, onFeedback,
                 </span>
               </div>
 
-              {/* Feedback */}
-              {!isUser && msg.interactionId && (
-                <div style={{ marginTop: "4px", marginBottom: "4px" }}>
-                  <FeedbackButtons
-                    interactionId={msg.interactionId}
-                    onFeedback={onFeedback}
-                  />
+              {/* Agent label */}
+              {!isUser && (msg as { agentLabel?: string }).agentLabel && (
+                <div style={{ marginTop: "3px" }}>
+                  <span style={{ fontSize: "9px", fontFamily: "var(--font-mono)", color: "var(--color-text-dim)", opacity: 0.6 }}>
+                    {(msg as { agentLabel?: string }).agentLabel}
+                  </span>
                 </div>
               )}
             </div>
@@ -285,8 +285,15 @@ export default function Console({ messages, orbState, onSendCommand, onFeedback,
 
         <button
           className="btn btn-ghost"
-          style={{ padding: "8px", flexShrink: 0, opacity: 0.5 }}
-          title="Voz (requer hardware)"
+          style={{
+            padding: "8px",
+            flexShrink: 0,
+            opacity: isListening ? 1 : 0.6,
+            color: isListening ? "#ff3b3b" : undefined,
+            border: isListening ? "1px solid #ff3b3b" : undefined,
+          }}
+          title={isListening ? "Parar de ouvir" : "Falar com JARVIS (Chrome)"}
+          onClick={isListening ? onStopListening : onStartListening}
         >
           <Mic size={14} />
         </button>

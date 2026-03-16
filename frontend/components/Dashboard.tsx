@@ -17,11 +17,10 @@
 import dynamic from "next/dynamic";
 import { useState } from "react";
 import { Cpu, MessageSquare, Bot, FolderOpen, Network, Wifi, WifiOff, Plus } from "lucide-react";
-import { useJarvisWS } from "@/hooks/useJarvisWS";
+import { useJarvis } from "@/hooks/useJarvis";
 import Console from "@/components/Console";
 import AgentsPanel from "@/components/AgentsPanel";
 import DeliveriesPanel from "@/components/DeliveriesPanel";
-import FeedbackButtons from "@/components/FeedbackButtons";
 
 // Imports dinâmicos (pesados — evita SSR)
 const Orb = dynamic(() => import("@/components/Orb"), { ssr: false });
@@ -41,10 +40,10 @@ const TABS: { id: Tab; label: string; icon: React.ReactNode; shortcut: string }[
 
 // ── View HUB ──────────────────────────────────────────────────
 
-function HubView({ state, sendCommand, onFeedback }: {
-  state: ReturnType<typeof useJarvisWS>["state"];
+function HubView({ state, sendCommand, startListening }: {
+  state: ReturnType<typeof useJarvis>["state"];
   sendCommand: (t: string) => void;
-  onFeedback: (id: string, f: "positive" | "negative") => void;
+  startListening: () => void;
 }) {
   const [quickInput, setQuickInput] = useState("");
 
@@ -127,7 +126,7 @@ function HubView({ state, sendCommand, onFeedback }: {
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
             {[
               { label: "MENSAGENS", value: state.messages.length, color: "var(--color-primary)" },
-              { label: "ENTREGAS",  value: state.deliveries.length, color: "var(--color-agent-result)" },
+              { label: "AGENTE",    value: state.activeAgent?.toUpperCase() ?? "—", color: "var(--color-agent-result)" },
               { label: "AGENTES",   value: state.agents.length, color: "#00c853" },
               { label: "STATUS",    value: state.orbState.toUpperCase(), color: "var(--color-text-dim)" },
             ].map((m) => (
@@ -230,7 +229,7 @@ function HubView({ state, sendCommand, onFeedback }: {
 
 export default function Dashboard() {
   const [activeTab, setActiveTab] = useState<Tab>("hub");
-  const { state, sendCommand, sendFeedback, startNewSession, clearMessages } = useJarvisWS();
+  const { state, sendCommand, startListening, stopListening, startNewSession, clearMessages } = useJarvis();
 
   const orbColorForBadge = {
     idle:      "badge-idle",
@@ -308,7 +307,7 @@ export default function Dashboard() {
       {/* ── Conteúdo das views ───────────────────────────────── */}
       <main style={{ overflow: "hidden", position: "relative" }}>
         {activeTab === "hub" && (
-          <HubView state={state} sendCommand={sendCommand} onFeedback={sendFeedback} />
+          <HubView state={state} sendCommand={sendCommand} startListening={startListening} />
         )}
 
         {activeTab === "console" && (
@@ -317,7 +316,9 @@ export default function Dashboard() {
               messages={state.messages}
               orbState={state.orbState}
               onSendCommand={sendCommand}
-              onFeedback={sendFeedback}
+              onStartListening={startListening}
+              onStopListening={stopListening}
+              isListening={state.isListening}
               onClear={clearMessages}
             />
           </div>
