@@ -1,20 +1,27 @@
 /**
  * app/api/chat/route.ts
  *
- * API Route com Groq (gratuito, ultra-rápido via LPU).
- * Modelo padrão: llama-3.3-70b-versatile
+ * API Route com xAI Grok (gratuito, com acesso à internet via web search).
+ * Modelo: grok-3-mini-beta
  *
- * Free tier: 30 RPM, 14.400 req/dia, 6.000 tokens/min
- * Obtenha sua chave em: https://console.groq.com/keys
+ * Free tier: $25/mês em créditos grátis
+ * Obtenha sua chave em: https://console.x.ai
  */
 
-import Groq from "groq-sdk";
+import OpenAI from "openai";
 import { AGENTS, detectAgent } from "@/lib/agents";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
-const groq = new Groq({ apiKey: process.env.GROQ_API_KEY! });
+const xai = new OpenAI({
+  apiKey: process.env.XAI_API_KEY!,
+  baseURL: "https://api.x.ai/v1",
+});
+
+// Palavras-chave que indicam necessidade de busca em tempo real
+const REALTIME_KEYWORDS =
+  /clima|tempo|temperatura|chuva|previsão|notícias?|noticias?|hoje|amanhã|amanha|agora|atual|recente|última|ultima|preço|cotação|cotacao|dólar|dollar|bitcoin|btc|jogo|resultado|placar/i;
 
 export async function POST(req: Request) {
   try {
@@ -27,8 +34,9 @@ export async function POST(req: Request) {
     const selectedAgent = agentName || detectAgent(text);
     const agent = AGENTS[selectedAgent] || AGENTS["analyst"];
 
-    // Groq usa o mesmo formato do OpenAI — sem conversão necessária
-    const messages: Groq.Chat.ChatCompletionMessageParam[] = [
+    const needsSearch = REALTIME_KEYWORDS.test(text);
+
+    const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [
       { role: "system", content: agent.systemPrompt },
       ...history.slice(-20).map((m: { role: string; content: string }) => ({
         role: m.role as "user" | "assistant",
@@ -37,13 +45,21 @@ export async function POST(req: Request) {
       { role: "user", content: text },
     ];
 
-    const stream = await groq.chat.completions.create({
-      model: (process.env.GROQ_MODEL || "llama-3.3-70b-versatile").trim(),
+    const requestParams: OpenAI.Chat.ChatCompletionCreateParamsStreaming = {
+      model: "grok-3-mini-beta",
       messages,
       stream: true,
       max_tokens: 8192,
       temperature: 0.7,
-    });
+    };
+
+    // Ativa busca na web para perguntas sobre tempo real
+    if (needsSearch) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (requestParams as any)["search_parameters"] = { mode: "auto" };
+    }
+
+    const stream = await xai.chat.completions.create(requestParams);
 
     const encoder = new TextEncoder();
     let fullText = "";
